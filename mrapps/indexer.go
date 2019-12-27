@@ -7,7 +7,7 @@ package main
 //
 
 import "fmt"
-import "mr"
+import "github.com/QuanLab/6.824/mr"
 
 import "strings"
 import "unicode"

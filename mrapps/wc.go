@@ -6,7 +6,7 @@ package main
 // go build -buildmode=plugin wc.go
 //
 
-import "mr"
+import "github.com/QuanLab/6.824/mr"
 import "unicode"
 import "strings"
 import "strconv"

@@ -1,6 +1,6 @@
 package kvraft
 
-import "linearizability"
+import "github.com/QuanLab/6.824/linearizability"
 
 import "testing"
 import "strconv"

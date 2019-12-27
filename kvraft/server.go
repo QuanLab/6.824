@@ -1,10 +1,10 @@
 package kvraft
 
 import (
-	"labgob"
-	"labrpc"
+	"github.com/QuanLab/6.824/labgob"
+	"github.com/QuanLab/6.824/labrpc"
 	"log"
-	"raft"
+	"github.com/QuanLab/6.824/raft"
 	"sync"
 	"sync/atomic"
 )

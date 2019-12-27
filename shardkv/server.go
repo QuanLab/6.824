@@ -2,10 +2,10 @@ package shardkv
 
 
 // import "shardmaster"
-import "labrpc"
-import "raft"
+import "github.com/QuanLab/6.824/labrpc"
+import "github.com/QuanLab/6.824/raft"
 import "sync"
-import "labgob"
+import "github.com/QuanLab/6.824/labgob"
 
 
 

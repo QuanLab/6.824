@@ -1,6 +1,6 @@
 package kvraft
 
-import "labrpc"
+import "github.com/QuanLab/6.824/labrpc"
 import "crypto/rand"
 import "math/big"
 

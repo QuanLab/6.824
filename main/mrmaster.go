@@ -7,7 +7,7 @@ package main
 // go run mrmaster.go pg*.txt
 //
 
-import "mr"
+import "github.com/QuanLab/6.824/mr"
 import "time"
 import "os"
 import "fmt"

@@ -19,7 +19,7 @@ package raft
 
 import "sync"
 import "sync/atomic"
-import "labrpc"
+import "github.com/QuanLab/6.824/labrpc"
 
 // import "bytes"
 // import "labgob"

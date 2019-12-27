@@ -4,7 +4,7 @@ package shardmaster
 // Shardmaster clerk.
 //
 
-import "labrpc"
+import "github.com/QuanLab/6.824/labrpc"
 import "time"
 import "crypto/rand"
 import "math/big"

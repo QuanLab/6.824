@@ -8,7 +8,7 @@ package main
 // go build -buildmode=plugin crash.go
 //
 
-import "mr"
+import "github.com/QuanLab/6.824/mr"
 import crand "crypto/rand"
 import "math/big"
 import "strings"

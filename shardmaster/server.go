@@ -1,10 +1,10 @@
 package shardmaster
 
 
-import "raft"
-import "labrpc"
+import "github.com/QuanLab/6.824/raft"
+import "github.com/QuanLab/6.824/labrpc"
 import "sync"
-import "labgob"
+import "github.com/QuanLab/6.824/labgob"
 
 
 type ShardMaster struct {
