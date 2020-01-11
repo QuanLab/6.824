@@ -50,10 +50,7 @@ type Task struct {
 // distribute tasks over workers when received notification
 //
 func (m *Master) DistributeTask(req *WorkerRequest, reply *MasterResponse) error {
-
 	worker := req.WorkerWrapper
-	fmt.Printf("received request from worker: %s\n", worker.WorkerID)
-	fmt.Println(req.Task)
 	// check worker id if exists and assign worker id to Worker Manager
 	if _, ok := m.WorkerMap[worker.WorkerID]; !ok {
 		m.WorkerMap[worker.WorkerID] = worker
@@ -134,7 +131,9 @@ func (m *Master) UpdateTaskCompleted(task Task) {
 		for i := 0; i < m.NReduce; i++ {
 			reducerTask := m.ReducerTask[i]
 			reducerTask.InputFile = append(reducerTask.InputFile, task.OutputFile[i])
+			m.mu.Lock()
 			m.ReducerTask[i] = reducerTask
+			m.mu.Unlock()
 		}
 	} else if task.Type == ReduceTask {
 
@@ -143,8 +142,10 @@ func (m *Master) UpdateTaskCompleted(task Task) {
 		m.mu.Unlock()
 
 		fmt.Printf("ReduceTask has completed: %d/%d\n", m.NumReduceCompleted, m.NReduce)
-		fmt.Println(task.ID, task.InputFile)
+
+		m.mu.Lock()
 		m.ReducerTask[int(task.ID)] = task
+		m.mu.Unlock()
 	}
 }
 
@@ -160,7 +161,7 @@ func (m *Master) server() {
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
-	fmt.Println("Server is running at [::1]:8080")
+	fmt.Printf("Server is running at %s\n", l.Addr().String())
 	go http.Serve(l, nil)
 }
 

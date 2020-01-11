@@ -56,8 +56,6 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	reply := AskForTask()
 
 	for {
-		fmt.Println("reply.Type ", reply.Type)
-		// Your worker implementation here.
 		if reply.Type == RT_Task {
 			task := reply.Task
 			if task.Type == MapTask {
