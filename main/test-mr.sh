@@ -53,6 +53,7 @@ else
   exit 1
 fi
 
+sleep 2
 # now indexer
 rm -f mr-*
 
@@ -81,7 +82,7 @@ else
 fi
 
 
-
+sleep 2
 
 echo '***' Starting map parallelism test.
 
@@ -110,7 +111,7 @@ else
   exit 1
 fi
 
-
+sleep 2
 echo '***' Starting reduce parallelism test.
 
 rm -f mr-out* mr-worker*
@@ -131,18 +132,19 @@ else
   echo '---' reduce parallelism test: PASS
 fi
 
-
+sleep 2
 
 # generate the correct output
 ../mrsequential ../../mrapps/nocrash.so ../pg*txt || exit 1
 sort mr-out-0 > mr-correct-crash.txt
 rm -f mr-out*
 
+sleep 2
 echo '***' Starting crash test.
 
 rm -f mr-done
 (../mrmaster ../pg*txt ; touch mr-done ) &
-sleep 1
+sleep 5
 
 # start multiple workers
 ../mrworker ../../mrapps/crash.so &

@@ -3,22 +3,21 @@ package mr
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
 import "log"
 import "net/rpc"
 import (
-	"hash/fnv"
-	"os"
-	"io/ioutil"
 	"encoding/json"
+	"hash/fnv"
+	"io/ioutil"
+	"os"
 	"sort"
 )
-
-var workerId = ""
-var workerAddress = ""
 
 type ByKey []KeyValue
 
@@ -35,6 +34,35 @@ type KeyValue struct {
 	Value string
 }
 
+type Worker struct {
+	ID			 string
+	Port         int
+	Host         string
+	CpuAvailable int
+	MemAvailable int
+	Status       WorkerStatus
+}
+
+func (w *Worker) Ping() HeartBeat {
+
+	return HeartBeat{IsAlive: true}
+}
+
+func (w *Worker) server() {
+	rpc.Register(w)
+	rpc.HandleHTTP()
+	l, e := net.Listen("tcp", "localhost:")
+	if e != nil {
+		log.Fatal("listen error:", e)
+	}
+	splits := strings.Split(l.Addr().String(), ":")
+	w.Host = splits[0]
+	w.Port, _ = strconv.Atoi(splits[1])
+	w.ID = fmt.Sprintf("worker-%d-%s:%d", time.Now().UnixNano(), w.Host, w.Port )
+	fmt.Printf("worker is running at %s\n", l.Addr().String())
+	go http.Serve(l, nil)
+}
+
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -45,26 +73,23 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
-
-	workerAddress = GetOutboundIP()
-	workerId = fmt.Sprintf("worker-%d-%s", time.Now().UnixNano(), workerAddress)
+func (w *Worker) DoTask(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	w.server()
 	// create worker temporary directory
-	workerDir := fmt.Sprintf(".%s", workerId)
+	workerDir := fmt.Sprintf(".%s", w.ID)
 	os.Mkdir(workerDir, 0766)
 
-	reply := AskForTask()
-
+	reply := w.AskForTask()
 	for {
 		if reply.Type == RT_Task {
 			task := reply.Task
 			if task.Type == MapTask {
 				var intermediatePartition = make(map[int][]KeyValue)
-				for p:= 0; p < reply.NumPartition; p++ {
+				for p := 0; p < reply.NumPartition; p++ {
 					intermediatePartition[p] = []KeyValue{}
 				}
 
-				for _, filename :=range task.InputFile {
+				for _, filename := range task.InputFile {
 					file, err := os.Open(filename)
 					if err != nil {
 						log.Fatalf("cannot open %v", filename)
@@ -89,12 +114,12 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 					// write immediate pairs to file with format mr-X-Y (X is map task ID, Y is reduce task ID)
 					var tmpFileName = fmt.Sprintf("%s/mr-%d-%d", workerDir, task.ID, partition)
 					outputFile[partition] = tmpFileName
-					tmpFile, err := os.OpenFile(tmpFileName,  os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-					if err!=nil {
+					tmpFile, err := os.OpenFile(tmpFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+					if err != nil {
 						log.Fatal(err)
 					}
 					enc := json.NewEncoder(tmpFile)
-					for _, kv :=range kva {
+					for _, kv := range kva {
 						err := enc.Encode(&kv)
 						if err != nil {
 							log.Fatal(err)
@@ -106,9 +131,9 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 			} else if task.Type == ReduceTask {
 				// read intermediate key from files
-				intermediate:= []KeyValue{}
-				for _, filename :=range task.InputFile {
-					file, err:= os.Open(filename)
+				intermediate := []KeyValue{}
+				for _, filename := range task.InputFile {
+					file, err := os.Open(filename)
 					if err != nil {
 						fmt.Println(err)
 					}
@@ -149,39 +174,36 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			}
 
 			task.Status = Completed
-			reply = NotifyTaskDone(task)
+			reply = w.NotifyTaskDone(task)
 
 		} else if reply.Type == RT_Stop {
 			break
 		} else if reply.Type == RT_Wait {
 			time.Sleep(time.Duration(1) * time.Second)
-			reply = AskForTask()
+			reply = w.AskForTask()
 		}
 	}
+	time.Sleep(time.Duration(1) * time.Second)
 }
 
 //
 // function to show how to make an RPC call to the master.
 //
-func AskForTask() *MasterResponse {
-	// fill in the argument(s).
-	worker := WorkerWrapper{WorkerID: workerId, Host: workerAddress, CpuAvailable: runtime.NumCPU(), Status:Running}
-	worker.CpuAvailable = runtime.NumCPU()
-
+func (w *Worker) AskForTask() *MasterResponse {
+	w.CpuAvailable = runtime.NumCPU()
 	resp := &MasterResponse{}
 
 	// send the RPC request, wait for the reply.
-	call("Master.DistributeTask", &WorkerRequest{WorkerWrapper:worker}, &resp)
+	call("Master.DistributeTask", &WorkerRequest{Worker: *w}, &resp)
 	return resp
 }
 
 //
 // notify master that task has done
 //
-func NotifyTaskDone(task Task) *MasterResponse {
-	workerWrapper := WorkerWrapper{WorkerID: workerId, Host: workerAddress, CpuAvailable: runtime.NumCPU()}
+func (w *Worker) NotifyTaskDone(task Task) *MasterResponse {
 	reply := &MasterResponse{}
-	call("Master.DistributeTask", &WorkerRequest{WorkerWrapper:workerWrapper, Task:task}, &reply)
+	call("Master.DistributeTask", &WorkerRequest{Worker: *w, Task: task}, &reply)
 	return reply
 }
 

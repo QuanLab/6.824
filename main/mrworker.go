@@ -22,7 +22,8 @@ func main() {
 
 	mapf, reducef := loadPlugin(os.Args[1])
 
-	mr.Worker(mapf, reducef)
+	worker := mr.Worker{}
+	worker.DoTask(mapf, reducef)
 }
 
 //

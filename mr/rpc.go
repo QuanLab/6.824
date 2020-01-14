@@ -20,28 +20,22 @@ const (
 	RT_Task ReplyType = 108
 )
 
-
 const (
 	Running WorkerStatus = 1
-	Halt 	WorkerStatus = -1
+	Halt    WorkerStatus = -1
 )
 
 type WorkerRequest struct {
-	WorkerWrapper WorkerWrapper
-	Task		  Task
-}
-
-type WorkerWrapper struct {
-	Host         string
-	Port		 string
-	WorkerID     string
-	CpuAvailable int
-	MemAvailable int
-	Status		 WorkerStatus
+	Worker Worker
+	Task   Task
 }
 
 type MasterResponse struct {
 	NumPartition int
 	Task         Task
 	Type         ReplyType
+}
+
+type HeartBeat struct {
+	IsAlive bool
 }

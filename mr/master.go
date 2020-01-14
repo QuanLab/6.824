@@ -20,12 +20,13 @@ type ReplyType int
 
 type Master struct {
 	//map worker -> status
-	WorkerMap          map[string]WorkerWrapper
+	WorkerMap          map[string]Worker
 	MapperTask         map[int32]Task
 	ReducerTask        map[int]Task
 	NumMapperCompleted int
 	NumReduceCompleted int
 	NReduce            int
+	PeriodCheck   	   int
 	mu                 sync.Mutex
 }
 
@@ -50,10 +51,13 @@ type Task struct {
 // distribute tasks over workers when received notification
 //
 func (m *Master) DistributeTask(req *WorkerRequest, reply *MasterResponse) error {
-	worker := req.WorkerWrapper
+	worker := req.Worker
+	fmt.Printf("received request from: %s\n", worker.ID)
 	// check worker id if exists and assign worker id to Worker Manager
-	if _, ok := m.WorkerMap[worker.WorkerID]; !ok {
-		m.WorkerMap[worker.WorkerID] = worker
+	if _, ok := m.WorkerMap[worker.ID]; !ok {
+		m.mu.Lock()
+		m.WorkerMap[worker.ID] = worker
+		m.mu.Unlock()
 	}
 
 	// update task has done
@@ -74,7 +78,7 @@ func (m *Master) DistributeTask(req *WorkerRequest, reply *MasterResponse) error
 		reply.NumPartition = m.NReduce
 		//update task status in Task Manager (MasterMapTask)
 		task.Status = InProgress
-		task.WorkerID = workerId
+		task.WorkerID = worker.ID
 
 		// update status of task in master data structure
 		if task.Type == MapTask {
@@ -155,8 +159,8 @@ func (m *Master) UpdateTaskCompleted(task Task) {
 func (m *Master) server() {
 	rpc.Register(m)
 	rpc.HandleHTTP()
-	//l, e := net.Listen("tcp", ":1234")
-	os.Remove("localhost:8080")
+	os.Create("mr-socket")
+
 	l, e := net.Listen("tcp", "localhost:8080")
 	if e != nil {
 		log.Fatal("listen error:", e)
@@ -171,6 +175,42 @@ func (m *Master) server() {
 //
 func (m *Master) Done() bool {
 	ret := false
+	for _, worker := range m.WorkerMap {
+		_, err := rpc.DialHTTP("tcp", worker.Host + fmt.Sprintf(":%d", worker.Port))
+		if err != nil {
+
+			m.mu.Lock()
+			delete(m.WorkerMap, worker.ID)
+			m.mu.Unlock()
+
+			fmt.Printf("worker %s died!\n", worker.ID)
+			fmt.Println("re-assign task to other worker")
+			if m.NumMapperCompleted < len (m.MapperTask) {
+				for _, mTask := range m.MapperTask {
+					if mTask.WorkerID == worker.ID {
+						mTask.Status = Idle
+						m.mu.Lock()
+						m.MapperTask[mTask.ID] = mTask
+						m.mu.Unlock()
+						fmt.Println("mapper task hold by worker has released. Task ID: ", mTask.ID)
+					}
+				}
+			}
+			if m.NumReduceCompleted < len (m.ReducerTask) {
+				for _, rTask := range m.ReducerTask {
+					if rTask.WorkerID == worker.ID {
+						rTask.Status = Idle
+						m.mu.Lock()
+						m.ReducerTask[int(rTask.ID)] = rTask
+						m.mu.Unlock()
+						fmt.Println("reducer task task hold by worker has released. Task ID: ", rTask.ID)
+					}
+				}
+			}
+		} else {
+			fmt.Printf("worker %s is running \n", worker.ID)
+		}
+	}
 	if m.NumReduceCompleted == m.NReduce {
 		ret = true
 	}
@@ -181,18 +221,15 @@ func (m *Master) Done() bool {
 // create a Master.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{NReduce: nReduce, NumMapperCompleted: 0, NumReduceCompleted:0}
-	fmt.Println("TaskMap is initializing")
+	m := Master{NReduce: nReduce, NumMapperCompleted: 0, NumReduceCompleted:0, PeriodCheck: 5}
 	m.MapperTask = make(map[int32]Task, 0)
-	m.WorkerMap = make(map[string]WorkerWrapper)
+	m.WorkerMap = make(map[string]Worker)
 
-	fmt.Println("Master Data Structure is initializing...")
 	for _, file := range files {
 		task := Task{ID: taskUniqueID.Inc(), Type: MapTask, Status: Idle, InputFile: []string{file}}
 		m.MapperTask[task.ID] = task
 	}
 
-	fmt.Println("Master Data Structure has created")
 	m.ReducerTask = make(map[int]Task, nReduce)
 	for i := 0; i < nReduce; i++ {
 		m.ReducerTask[i] = Task{ID: int32(i), Type: ReduceTask, Status: Idle}
