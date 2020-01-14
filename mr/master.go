@@ -11,6 +11,11 @@ import "net/rpc"
 import "net/http"
 import "github.com/uber-go/atomic"
 
+const (
+	masterHost = "localhost"
+	masterPort= 8080
+)
+
 var taskUniqueID = atomic.NewInt32(0)
 
 type TaskType int
@@ -45,14 +50,12 @@ type Task struct {
 	WorkerID   string
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
 //
 // distribute tasks over workers when received notification
 //
 func (m *Master) DistributeTask(req *WorkerRequest, reply *MasterResponse) error {
 	worker := req.Worker
-	fmt.Printf("received request from: %s\n", worker.ID)
+	log.Printf("received request from: %s\n", worker.ID)
 	// check worker id if exists and assign worker id to Worker Manager
 	if _, ok := m.WorkerMap[worker.ID]; !ok {
 		m.mu.Lock()
@@ -62,12 +65,35 @@ func (m *Master) DistributeTask(req *WorkerRequest, reply *MasterResponse) error
 
 	// update task has done
 	if req.Task.Type == MapTask {
-		if _, ok := m.MapperTask[req.Task.ID]; ok {
-			m.UpdateTaskCompleted(req.Task)
+		if mTask, ok := m.MapperTask[req.Task.ID]; ok {
+			// only update in-progress task, avoid multi-worker execute the same task
+			if mTask.Status == InProgress {
+				m.mu.Lock()
+				m.MapperTask[req.Task.ID] = req.Task
+				m.mu.Unlock()
+
+				log.Printf("MapTask has completed: %d/%d\n", m.NumMapperCompleted, len(m.MapperTask))
+				// assign files output from Mapper to Reducer Manager
+				// iterate map MapTask get output files
+				for i := 0; i < m.NReduce; i++ {
+					reducerTask := m.ReducerTask[i]
+					reducerTask.InputFile = append(reducerTask.InputFile, req.Task.OutputFile[i])
+					m.mu.Lock()
+					m.ReducerTask[i] = reducerTask
+					m.mu.Unlock()
+				}
+				m.mu.Lock()
+				m.NumMapperCompleted = m.NumMapperCompleted + 1
+				m.mu.Unlock()
+			}
 		}
 	} else if req.Task.Type == ReduceTask {
 		if _, ok := m.ReducerTask[int(req.Task.ID)]; ok {
-			m.UpdateTaskCompleted(req.Task)
+			m.mu.Lock()
+			m.ReducerTask[int(req.Task.ID)] = req.Task
+			m.NumReduceCompleted =  m.NumReduceCompleted + 1
+			m.mu.Unlock()
+			log.Printf("ReduceTask has completed: %d/%d\n", m.NumReduceCompleted, m.NReduce)
 		}
 	}
 
@@ -82,13 +108,17 @@ func (m *Master) DistributeTask(req *WorkerRequest, reply *MasterResponse) error
 
 		// update status of task in master data structure
 		if task.Type == MapTask {
+			m.mu.Lock()
 			m.MapperTask[task.ID] = task
+			m.mu.Unlock()
 		} else if task.Type == ReduceTask {
+			m.mu.Lock()
 			m.ReducerTask[int(task.ID)] = task
+			m.mu.Unlock()
 		}
 	} else {
 		if m.NumMapperCompleted < len(m.MapperTask) {
-			fmt.Println("Wait for all mapper complete....")
+			log.Println("Wait for all mapper complete....")
 			reply.Type = RT_Wait
 		} else {
 			reply.Type = RT_Stop
@@ -118,42 +148,6 @@ func (m *Master) GetTaskInQueue() (Task, bool) {
 }
 
 //
-// update task status
-//
-func (m *Master) UpdateTaskCompleted(task Task) {
-	// update task has completed
-	if task.Type == MapTask {
-
-		m.mu.Lock()
-		m.NumMapperCompleted = m.NumMapperCompleted + 1
-		m.mu.Unlock()
-
-		fmt.Printf("MapTask has completed: %d/%d\n", m.NumMapperCompleted, len(m.MapperTask))
-		m.MapperTask[task.ID] = task
-		// assign files output from Mapper to Reducer Manager
-		// iterate map MapTask get output files
-		for i := 0; i < m.NReduce; i++ {
-			reducerTask := m.ReducerTask[i]
-			reducerTask.InputFile = append(reducerTask.InputFile, task.OutputFile[i])
-			m.mu.Lock()
-			m.ReducerTask[i] = reducerTask
-			m.mu.Unlock()
-		}
-	} else if task.Type == ReduceTask {
-
-		m.mu.Lock()
-		m.NumReduceCompleted =  m.NumReduceCompleted + 1
-		m.mu.Unlock()
-
-		fmt.Printf("ReduceTask has completed: %d/%d\n", m.NumReduceCompleted, m.NReduce)
-
-		m.mu.Lock()
-		m.ReducerTask[int(task.ID)] = task
-		m.mu.Unlock()
-	}
-}
-
-//
 // start a thread that listens for RPCs from worker.go
 //
 func (m *Master) server() {
@@ -161,11 +155,11 @@ func (m *Master) server() {
 	rpc.HandleHTTP()
 	os.Create("mr-socket")
 
-	l, e := net.Listen("tcp", "localhost:8080")
+	l, e := net.Listen("tcp", "0.0.0.0:8080")
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
-	fmt.Printf("Server is running at %s\n", l.Addr().String())
+	log.Printf("Server is running at %s\n", l.Addr().String())
 	go http.Serve(l, nil)
 }
 
@@ -176,15 +170,15 @@ func (m *Master) server() {
 func (m *Master) Done() bool {
 	ret := false
 	for _, worker := range m.WorkerMap {
+		// ping to worker
 		_, err := rpc.DialHTTP("tcp", worker.Host + fmt.Sprintf(":%d", worker.Port))
 		if err != nil {
-
 			m.mu.Lock()
 			delete(m.WorkerMap, worker.ID)
 			m.mu.Unlock()
 
-			fmt.Printf("worker %s died!\n", worker.ID)
-			fmt.Println("re-assign task to other worker")
+			log.Printf("worker %s died!\n", worker.ID)
+			log.Println("re-assign task to other worker")
 			if m.NumMapperCompleted < len (m.MapperTask) {
 				for _, mTask := range m.MapperTask {
 					if mTask.WorkerID == worker.ID {
@@ -192,7 +186,7 @@ func (m *Master) Done() bool {
 						m.mu.Lock()
 						m.MapperTask[mTask.ID] = mTask
 						m.mu.Unlock()
-						fmt.Println("mapper task hold by worker has released. Task ID: ", mTask.ID)
+						log.Println("mapper task hold by worker has released. Task ID: ", mTask.ID)
 					}
 				}
 			}
@@ -203,14 +197,15 @@ func (m *Master) Done() bool {
 						m.mu.Lock()
 						m.ReducerTask[int(rTask.ID)] = rTask
 						m.mu.Unlock()
-						fmt.Println("reducer task task hold by worker has released. Task ID: ", rTask.ID)
+						log.Println("reducer task hold by worker has released. Task ID: ", rTask.ID)
 					}
 				}
 			}
 		} else {
-			fmt.Printf("worker %s is running \n", worker.ID)
+			log.Printf("worker %s is running \n", worker.ID)
 		}
 	}
+	// tasks completed
 	if m.NumReduceCompleted == m.NReduce {
 		ret = true
 	}

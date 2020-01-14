@@ -51,15 +51,15 @@ func (w *Worker) Ping() HeartBeat {
 func (w *Worker) server() {
 	rpc.Register(w)
 	rpc.HandleHTTP()
-	l, e := net.Listen("tcp", "localhost:")
+	l, e := net.Listen("tcp", "0.0.0.0:")
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
 	splits := strings.Split(l.Addr().String(), ":")
-	w.Host = splits[0]
-	w.Port, _ = strconv.Atoi(splits[1])
+	w.Host = GetOutboundIP()
+	w.Port, _ = strconv.Atoi(splits[len(splits) - 1])
 	w.ID = fmt.Sprintf("worker-%d-%s:%d", time.Now().UnixNano(), w.Host, w.Port )
-	fmt.Printf("worker is running at %s\n", l.Addr().String())
+	log.Printf("worker is running at %s\n", l.Addr().String())
 	go http.Serve(l, nil)
 }
 
@@ -192,7 +192,6 @@ func (w *Worker) DoTask(mapf func(string, string) []KeyValue, reducef func(strin
 func (w *Worker) AskForTask() *MasterResponse {
 	w.CpuAvailable = runtime.NumCPU()
 	resp := &MasterResponse{}
-
 	// send the RPC request, wait for the reply.
 	call("Master.DistributeTask", &WorkerRequest{Worker: *w}, &resp)
 	return resp
@@ -213,7 +212,7 @@ func (w *Worker) NotifyTaskDone(task Task) *MasterResponse {
 // returns false if something goes wrong.
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
-	c, err := rpc.DialHTTP("tcp", "localhost"+":8080")
+	c, err := rpc.DialHTTP("tcp", masterHost +fmt.Sprintf(":%d", masterPort))
 	if err != nil {
 		log.Fatal("dialing:", err.Error())
 	}

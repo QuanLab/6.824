@@ -20,11 +20,6 @@ const (
 	RT_Task ReplyType = 108
 )
 
-const (
-	Running WorkerStatus = 1
-	Halt    WorkerStatus = -1
-)
-
 type WorkerRequest struct {
 	Worker Worker
 	Task   Task
