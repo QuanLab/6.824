@@ -9,14 +9,14 @@ import (
 import "net"
 import "net/rpc"
 import "net/http"
-import "github.com/uber-go/atomic"
+import "sync/atomic"
 
 const (
 	masterHost = "localhost"
 	masterPort= 8080
 )
 
-var taskUniqueID = atomic.NewInt32(0)
+var taskUniqueID = int32(0);
 
 type TaskType int
 type TaskStatus int
@@ -221,7 +221,8 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.WorkerMap = make(map[string]Worker)
 
 	for _, file := range files {
-		task := Task{ID: taskUniqueID.Inc(), Type: MapTask, Status: Idle, InputFile: []string{file}}
+		atomic.AddInt32(&taskUniqueID, 1)
+		task := Task{ID: taskUniqueID, Type: MapTask, Status: Idle, InputFile: []string{file}}
 		m.MapperTask[task.ID] = task
 	}
 
